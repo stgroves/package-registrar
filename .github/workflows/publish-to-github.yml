@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
 
@@ -32,7 +32,7 @@ jobs:
         id: local_version
         run: |
           curl -H "Authorization: token $NODE_AUTH_TOKEN" \
-               -H "Accept: application/vnd.github.v3.raw" \
+               -H "Accept: application/vnd.github.v4.raw" \
                -o package.json \
                "https://api.github.com/repos/${{ inputs.package-name }}/contents/package.json"
 
@@ -75,7 +75,7 @@ jobs:
 
     steps:
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           registry-url: 'https://npm.pkg.github.com'
