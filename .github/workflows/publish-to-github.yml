@@ -1,0 +1,79 @@
+name: publish-to-github.yml
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        required: true
+        type: string
+jobs:
+  get-access-token:
+    uses: STGroves/token-manager/.github/workflows/request-access-token.yml@main
+
+  publish:
+    needs: get-access-token
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ needs.get-access-token.outputs.access-token }}
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          always-auth: true
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Get Local Version
+        id: local_version
+        run: |
+          curl -H "Authorization: token $NODE_AUTH_TOKEN" \
+               -H "Accept: application/vnd.github.v3.raw" \
+               -o package.json \
+               "https://api.github.com/repos/${{ inputs.package-name }}/contents/package.json"
+          
+          VERSION=$(jq -r .version package.json)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Local version: $VERSION"
+
+      - name: Validate package.json
+        run: |
+          if [ ! -s package.json ]; then
+            echo "Error: Unable to retrieve package.json. Exiting..."
+            exit 1
+          fi
+
+      - name: Get Published Version (GitHub Packages)
+        id: published_version
+        run: |
+          PUBLISHED_VERSION=$(npm view @${{ inputs.package-name }} version 2>/dev/null || echo "0.0.0")
+          echo "PUBLISHED_VERSION=$PUBLISHED_VERSION" >> $GITHUB_ENV
+          echo "Published version: $PUBLISHED_VERSION"
+
+      - name: Check Version Differences
+        id: check_version
+        run: |
+          if [[ -z "$VERSION" || -z "$PUBLISHED_VERSION" ]]; then
+            echo "Error: Missing version details."
+            exit 1
+          fi
+          
+          if [ "$VERSION" == "$PUBLISHED_VERSION" ]; then
+            echo "SHOULD_PUBLISH=false" >> $GITHUB_ENV
+          else
+            echo "SHOULD_PUBLISH=true" >> $GITHUB_ENV
+          fi
+
+      - name: Set up .npmrc for GitHub Packages
+        run: |
+          echo "@${{ inputs.package-name }}:registry=https://npm.pkg.github.com/" >> ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=$NODE_AUTH_TOKEN" >> ~/.npmrc
+
+      - name: Build Package
+        run: npm run build || echo "No build step"
+
+      - name: Publish to GitHub Packages
+        if: env.SHOULD_PUBLISH == 'true'
+        run: npm publish
