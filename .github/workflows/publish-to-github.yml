@@ -5,12 +5,16 @@ on:
       package-name:
         required: true
         type: string
+      check-version:
+        required: true
+        type: boolean
 jobs:
   get-access-token:
-    uses: STGroves/token-manager/.github/workflows/request-access-token.yml@main
+    uses: stgroves/token-manager/.github/workflows/request-access-token.yml@main
 
-  publish:
+  version-check:
     needs: get-access-token
+    if: ${{ inputs.check-version }}
     runs-on: ubuntu-latest
     env:
       NODE_AUTH_TOKEN: ${{ needs.get-access-token.outputs.access-token }}
@@ -20,8 +24,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '20'
-          registry-url: 'https://npm.pkg.github.com'
-          always-auth: true
 
       - name: Install Dependencies
         run: npm install
@@ -33,7 +35,7 @@ jobs:
                -H "Accept: application/vnd.github.v3.raw" \
                -o package.json \
                "https://api.github.com/repos/${{ inputs.package-name }}/contents/package.json"
-          
+
           VERSION=$(jq -r .version package.json)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "Local version: $VERSION"
@@ -59,12 +61,28 @@ jobs:
             echo "Error: Missing version details."
             exit 1
           fi
-          
+
           if [ "$VERSION" == "$PUBLISHED_VERSION" ]; then
-            echo "SHOULD_PUBLISH=false" >> $GITHUB_ENV
-          else
-            echo "SHOULD_PUBLISH=true" >> $GITHUB_ENV
+            echo "Error: Versions already match."
+            exit 1
           fi
+
+  publish:
+    needs: [version-check]
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ needs.get-access-token.outputs.access-token }}
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          always-auth: true
+
+      - name: Install Dependencies
+        run: npm install
 
       - name: Set up .npmrc for GitHub Packages
         run: |
@@ -75,5 +93,4 @@ jobs:
         run: npm run build || echo "No build step"
 
       - name: Publish to GitHub Packages
-        if: env.SHOULD_PUBLISH == 'true'
         run: npm publish
